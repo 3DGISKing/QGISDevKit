@@ -1,0 +1,578 @@
+set -e
+
+export MASTER_HOST=download.osgeo.org
+export MASTER_BASE=osgeo4w/v2
+export MASTER_REPO=http://$MASTER_HOST/$MASTER_BASE
+export MASTER_REGEN_URI=http://$MASTER_HOST/cgi-bin/osgeo4w-regen-v2.sh
+export MASTER_SCP=upload.osgeo.org:/osgeo/download/$MASTER_BASE
+export OSGEO4W_SCRIPTS=$(cygpath -a "$( dirname "${BASH_SOURCE[0]}" )")
+export OSGEO4W_PWD=$PWD
+
+export PYTHON=Python39
+export OSGEO4W_HINTS=0
+
+savelog() {
+	local f=$1
+	rm -f $f.9
+	for i in $(seq 8 -1 0); do ! [ -f "$f.$i" ] || mv $f.$i $f.$(( i + 1 )); done
+	! [ -f $f ] || mv $f $f.0
+}
+declare -x savelog
+
+log() {
+	echo "$(date +"%Y-%m-%d %H:%M:%S"): $*"
+}
+declare -x log
+
+startlog() {
+	echo "Local package repository: $OSGEO4W_REP"
+	echo "Logging to $OSGEO4W_PWD/package.log"
+	savelog package.log
+	exec > >(tee package.log) 2>&1
+
+	export PATH=$(cygpath -S):$(cygpath -W):$(cygpath -S)/WBem:/bin:/usr/bin
+	log "Starting with clean PATH: $PATH"
+	
+	echo $BUILDDEPENDS
+
+	[ "$BUILDDEPENDS" == "none" ] || {
+		fetchdeps $BUILDDEPENDS
+		export RUNTIMEDEPENDS=$(runtimedepends $BUILDDEPENDS)
+	}
+
+	trap 'errlog $LINENO $?' ERR
+	trap "faillog" EXIT
+}
+declare -x startlog
+
+runtimedepends() {
+	local depends
+
+	for p in "$@"; do
+                if [ -f "$OSGEO4W_PWD/osgeo4w/etc/abi/$p" ]; then
+			depends="$depends $(<$OSGEO4W_PWD/osgeo4w/etc/abi/$p)"
+                fi
+        done
+
+	echo ${depends# }
+}
+declare -x runtimedepends
+
+endlog() {
+	local r=$?
+
+	if [ "$OSGEO4W_BUILDMODE" = "test" -a $OSGEO4W_HINTS -eq 0 ]; then
+		log "WARNING: test build without hints"
+	fi
+
+	if [ $r -eq 0 ]; then
+		log "Local repository updates:"
+		regen
+
+		(
+			cd $OSGEO4W_REP
+			diff -u x86_64/setup.ini.prev x86_64/setup.ini || true
+		)
+
+		if [ -z "$OSGEO4W_SKIP_UPLOAD" ]; then
+			log "Uploading to master repo:"
+			perl $OSGEO4W_SCRIPTS/upload.pl
+		fi
+	fi
+
+	trap "" EXIT
+	finishlog
+	return $r
+}
+declare -x endlog
+
+errlog() {
+	log "ERROR: error $2 on line $1"
+	set -x
+	local i=1
+	while caller $(( i++ )); do
+		:
+	done
+}
+declare -x errlog
+
+faillog() {
+	log "FAILED: $?"
+	if [ -x "$OSGEO4W_SCRIPTS/fail" ]; then
+		$OSGEO4W_SCRIPTS/fail
+	fi
+	finishlog
+	return 1
+}
+declare -x faillog
+
+finishlog() {
+	log "END"
+}
+declare -x finishlog
+
+#
+# run a configuration batch file and source environment changes
+#
+fetchenv() {
+	local IFS
+	IFS=
+	local batch=$1
+	shift
+
+	if ! [ -f "$batch" ]; then
+		echo "$batch not found"
+		return 1
+	fi
+
+	local d=$(mktemp -d /tmp/fetchenv.XXXXXXXXXX)
+	cmd /c set >$d/srcenv || true
+	cmd /c call $(cygpath -w $batch) "$@" \>$(cygpath -w $d/log) 2\>\&1 \& set >$d/dstenv || true
+
+	! [ -f $d/log ] || cat $d/log
+
+	while [ -f $d/log ]; do
+		rm $d/log || sleep 2
+	done
+
+	cat <<EOF >$d/envdiff
+/^+++/d;
+/^[^+]/d;
+s/^+//;
+# s/\\\\/\\\\\\\\/g;
+/^PATH=/ {
+	s/\\\\/\\//g;
+	s#\\([=;]\\)\\([a-zA-Z]\\):#\\1/cygdrive/\\2#g;
+	s/;/:/g;
+}
+s/;/\\\\;/g;
+s/^/export /;
+s/=/='/;
+s/\\\\r//g;
+s/\r$/'/;
+EOF
+	diff -u $d/srcenv $d/dstenv | sed -f $d/envdiff >$d/diffenv
+	. $d/diffenv
+	PATH=$PATH:/bin:/usr/bin:$(cygpath --sysdir):$(cygpath --windir)
+	[ -n "$OSGEO4W_KEEP_ENV" ] || rm -fr $d || true
+}
+declare -x fetchenv
+
+vs2019env() {
+	local e vcdir
+
+	vcdir=
+	for e in Community Professional Enterprise; do
+		d=$(cygpath "$PROGRAMFILES (x86)\\Microsoft Visual Studio\\2019\\$e")
+		if [ -d "$d" ]; then
+			vcdir=$d
+			break
+		fi
+	done
+
+	if [ -z "$vcdir" ]; then
+		echo "Visual Studio 2019 not found" >&2
+		exit 1
+	fi
+
+	export VS160COMNTOOLS=$(cygpath -aw "$vcdir")/Common7/Tools
+	fetchenv "$vcdir/VC/Auxiliary/Build/vcvarsall.bat" ${VCARCH:-amd64} $VCSDK
+	export PATH="$vcdir/VC/bin:$PATH"
+	export CC=cl.exe
+	export CXX=cl.exe
+}
+declare -x vs2019env
+
+cmakeenv() {
+	local pf=$(cygpath "$PROGRAMFILES")
+
+	if ! [ -x "$pf/CMake/bin/cmake.exe" ]; then
+		# FIXME: install
+		echo "CMake not found"
+		exit 1
+	fi
+
+	export PATH="$pf/CMake/bin:$PATH"
+}
+declare -x cmakeenv
+
+ninjaenv() {
+	if ! [ -x "$OSGEO4W_SCRIPTS/ninja.exe" ]; then
+		(
+			cd /tmp
+			curl --remote-name -L https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-win.zip
+			cd $OSGEO4W_SCRIPTS
+			unzip /tmp/ninja-win.zip
+
+			chmod a+rx ninja.exe
+		)
+	fi
+
+	if ! [ -x "$OSGEO4W_SCRIPTS/ninja.exe" ]; then
+		echo "Ninja not found"
+		exit 1
+	fi
+
+	export PATH="$OSGEO4W_SCRIPTS:$PATH"
+}
+
+regen() {
+	(
+		# update local package repository
+		cd $OSGEO4W_REP
+		[ -d x86_64/release ] || mkdir -p x86_64/release
+		! [ -f x86_64/setup.ini ] || cp x86_64/setup.ini x86_64/setup.ini.prev
+		perl $OSGEO4W_SCRIPTS/genini --arch=x86_64 --output=x86_64/setup.ini.tmp --recursive x86_64/release
+		mv x86_64/setup.ini.tmp x86_64/setup.ini
+		bzip2 -c x86_64/setup.ini >x86_64/setup.ini.bz2
+		perl $OSGEO4W_SCRIPTS/genini --alllicenses --arch=x86_64 --output=x86_64/setup-lic.ini.tmp --recursive x86_64/release
+		mv x86_64/setup-lic.ini.tmp x86_64/setup-lic.ini
+		bzip2 -c x86_64/setup-lic.ini >x86_64/setup-lic.ini.bz2
+	)
+}
+declare -x regen
+
+setuppid() {
+	local pid rest
+	while read pid rest; do
+		echo $pid
+	done < <(ps auxw -W | fgrep "$(cygpath -aw $OSGEO4W_SCRIPTS/osgeo4w-setup.exe)")
+}
+declare -x setuppid
+
+fetchdeps() {
+	local p missing
+
+	if [ -d "$OSGEO4W_PWD/osgeo4w" ]; then
+		missing=
+		for p in "$@"; do
+			if [ -f "$OSGEO4W_PWD/osgeo4w/etc/setup/$p.lst.gz" ]; then
+				continue
+			fi
+
+			missing="$missing $p"
+		done
+
+		if [ -z "$missing" ]; then
+			log "No missing dependencies"
+			if [ -n "$OSGEO4W_SKIP_UPDATE" ]; then
+				return 0
+			fi
+		fi
+	fi
+
+	if ! [ -x "$OSGEO4W_SCRIPTS/osgeo4w-setup.exe" ]; then
+		curl --output "$OSGEO4W_SCRIPTS/osgeo4w-setup.exe" $MASTER_REPO/osgeo4w-setup.exe
+		chmod a+x "$OSGEO4W_SCRIPTS/osgeo4w-setup.exe"
+	fi
+
+	if ! regen; then
+		log "regen failed"
+	fi
+
+	local pid=$(setuppid)
+	if [ -n "$pid" ]; then
+		log "osgeo4w-setup still running"
+		false
+	fi
+
+	local cmd
+	cmd="$OSGEO4W_SCRIPTS/osgeo4w-setup.exe"
+	cmd="$cmd --root $(cygpath -am $OSGEO4W_PWD/osgeo4w)"
+	cmd="$cmd --autoaccept"
+	# cmd="$cmd --advanced"
+	cmd="$cmd --arch x86_64"
+	[ -n "$OSGEO4W_INTERACTIVE" ] || cmd="$cmd --quiet-mode"
+	cmd="$cmd --upgrade-also"
+	cmd="$cmd --only-site"
+	cmd="$cmd --safe"
+	cmd="$cmd --no-shortcuts"
+	cmd="$cmd -s $(cygpath -am $OSGEO4W_REP)"
+	cmd="$cmd -s $MASTER_REPO"
+	cmd="$cmd -l $(cygpath -am $OSGEO4W_REP/package-cache)"
+
+	for p in "$@"; do
+		cmd="$cmd -P $p"
+	done
+
+	log "OSGEO4W:$cmd"
+	if ! $cmd; then
+		log "OSGeo4W failed"
+		for i in osgeo4w/setup.log osgeo4w/setup.log.full osgeo4w/var/log/setup.log osgeo4w/var/log/setup.log.full; do
+			[ -f $i ] && cat $i
+		done
+	fi
+
+	missing=
+	for p in "$@"; do
+		if [ -f "$OSGEO4W_PWD/osgeo4w/etc/setup/$p.lst.gz" ]; then
+			continue
+		fi
+
+		missing="$missing $p"
+	done
+
+	if [ -z "$missing" ]; then
+		return 0
+	else
+		log "Missing dependencies:$missing"
+		return 1
+	fi
+}
+declare -x fetchdeps
+
+# determine whether first version argument is higher than seconds
+higherversion() {
+	local a=$1
+	local b=$2
+
+	if [ "$a" == "-" ]; then
+		a=
+	fi
+	if [ "$b" == "-" ]; then
+		b=
+	fi
+
+	if [ "$a" == "$b" ]; then
+		return 1	# equal
+	elif [ "$a" == "$(sort -V <(echo $a; echo $b) | head -1)" ]; then
+		return 1	# lower
+	else
+		return 0	# higher
+	fi
+}
+declare -x higherversion
+
+# retrieve highest available package version for package argument
+availablepackageversions() {
+	local p=$1
+	if [ -z "$p" ]; then
+		return 1
+	fi
+
+	curl -s --output /tmp/setup-master.ini $MASTER_REPO/x86_64/setup.ini
+
+	regen 1>&2
+
+	version_curr= binary_curr=
+	version_prev= binary_prev=
+	version_test= binary_test=
+
+	local i section f
+	for i in /tmp/setup-master.ini $OSGEO4W_REP/x86_64/setup.ini; do
+		section=curr
+		while read f; do
+			case "$f" in
+			"[prev]")
+				section=prev
+				;;
+			"[test]")
+				section=test
+				;;
+			"version: "*)
+				f=${f#version: }
+				if eval higherversion \$f \$version_$section-\$binary_$section; then
+					local version=${f%-[0-9]*}
+					local binary=${f#$version-}
+					eval version_$section=$version binary_$section=$binary
+				fi
+				;;
+			esac
+		done < <(sed -ne '/^@ '$p'$/,/^$/p' $i)
+	done
+
+	return 0
+}
+declare -x availablepackageversions
+
+appendversions() {
+	local hint=$1
+	[ -f "$hint" ]
+
+	[ -z "$version_curr" ] || echo "curr: $version_curr-$binary_curr" >>$hint
+	[ -z "$version_prev" ] || echo "prev: $version_prev-$binary_prev" >>$hint
+	[ -z "$version_test" ] || echo "test: $version_test-$binary_test" >>$hint
+
+	(( ++OSGEO4W_HINTS ))
+}
+declare -x appendversions
+
+nextbinary() {
+	local p
+	if [ "$1" = "next" -o -z "$1" ]; then
+		p=$P
+	else
+		p=$1
+	fi
+
+	case "$V" in
+	*[rR][cC][0-9]*)
+		: ${OSGEO4W_BUILDMODE:=test}
+		;;
+	esac
+
+	availablepackageversions $p
+
+	if [ "$OSGEO4W_BUILDMODE" = "test" ]; then
+		if [ "$version_test" == "$V" ]; then
+			(( ++binary_test ))
+		else
+			binary_test=1
+		fi
+		B=$binary_test
+		log "Building test version $V-$B"
+	else
+		version_prev=$version_curr
+		binary_prev=$binary_curr
+
+		if [ "$version_curr" == "$V" ]; then
+			(( ++binary_curr ))
+		else
+			version_curr=$V
+			binary_curr=1
+		fi
+
+		B=$binary_curr
+		log "Building production version $V-$B"
+	fi
+}
+declare -x nextbinary
+
+packagewheel() {
+	log "Packaging $P==$V with pip"
+
+	local p=${P#python3-}
+	if [ "$P" == "$p" ]; then
+		log "Expecting python3- prefix"
+		return 1
+	fi
+
+	(
+		cd $OSGEO4W_PWD
+
+		# mkdir -p build
+		# export TEMP=$(cygpath -aw build)
+		# PATH too long
+		mkdir -p /c/TEMP/
+		export TEMP=/c/TEMP/
+
+		fetchenv osgeo4w/bin/o4w_env.bat
+		vs2019env
+
+		# for pywin32.GetLongName
+		# sometimes exits with 130 although it has installed the package
+		python3 -m pip -v install pywin32 || python3 -m pip show pywin32
+
+		export PIP_LOG=$(cygpath -am pip.log)
+		savelog $PIP_LOG
+
+		export PIP_NO_DEPENDENCIES=1
+		export PIP_NO_BINARY=:all:
+		#export PIP_FORCE_REINSTALL=1
+		export PIP_NO_COMPILE=1
+		export PIP_UPGRADE=0
+		export PIP_NO_BUILD_ISOLATION=1
+		#export PIP_NO_CLEAN=1
+
+		! [ -f pip.env ] || source pip.env
+
+		set | grep "^PIP_"
+
+		OSGEO4W_REP=$(cygpath -m "$OSGEO4W_REP") \
+		OSGEO4W_ROOT=$(cygpath -aw "$OSGEO4W_ROOT") \
+		python3 $(cygpath -am $OSGEO4W_SCRIPTS/pippkg.py) "$@"
+	)
+
+	! [ -f $OSGEO4W_PWD/pipped.env ] || source $OSGEO4W_PWD/pipped.env
+}
+
+# make sure we are using what we expect
+awk() { /bin/awk "$@"; }
+bash() { /bin/bash "$@"; }
+cat() { /bin/cat "$@"; }
+cp() { /bin/cp "$@"; }
+rm() { /bin/rm "$@"; }
+rmdir() { /bin/rmdir "$@"; }
+mv() { /bin/mv "$@"; }
+mktemp() { /bin/mktemp "$@"; }
+mkdir() { /bin/mkdir "$@"; }
+tar() { /bin/tar "$@"; }
+ls() { /bin/ls "$@"; }
+sed() { /bin/sed "$@"; }
+diff() { /bin/diff "$@"; }
+patch() { /bin/patch "$@"; }
+find() { /bin/find "$@"; }
+xargs() { /bin/xargs "$@"; }
+flip() { /bin/flip "$@"; }
+touch() { /bin/touch "$@"; }
+unzip() { /bin/unzip "$@"; }
+sort() { /bin/sort "$@"; }
+make() { /bin/make "$@"; }
+7z() { /bin/7z "$@"; }
+cygpath() { /bin/cygpath "$@"; }
+curl() { /bin/curl "$@"; }
+catdoc() { /bin/catdoc "$@"; }
+iconv() { /bin/iconv "$@"; }
+wget() { /bin/wget "$@"; }
+
+declare -x awk bash cat cp rm mkdir tar ls sed diff patch find xargs flip touch unzip cygpath catdoc iconv wget
+
+init() {
+	if [ -n "$OSGEO4W_ROOT" ]; then
+		echo "Builds are supposed to be run outside of OSGeo4W" >&2
+		exit 1
+	fi
+
+	# Verify that a repository is set
+	if ! [ -d "$OSGEO4W_REP" ]; then
+		echo "No repository" >&2
+		exit 1
+	fi
+
+	if [ -n "$OSGEO4W_MAINTAINER" ]; then
+		echo "Overriding maintainer $MAINTAINER with $OSGEO4W_MAINTAINER" >&2
+		MAINTAINER=$OSGEO4W_MAINTAINER
+	fi
+
+	if [ -z "$MAINTAINER" ]; then
+		echo "No maintainer" >&2
+		exit 1
+	fi
+
+	if [ -z "$P" ]; then
+		echo "no package name in P" >&2
+		exit 1
+	fi
+
+	if [ -z "$V" ]; then
+		echo "No (upstream) version in V" >&2
+		exit 1
+	fi
+
+	case "$B" in
+	next|"next "*)
+		nextbinary ${B#next }
+		echo "Binary package version: $P-$V-$B"
+		;;
+
+	pip)
+		;;
+
+	[0-9]*)
+		;;
+
+	"")
+		echo "No binary version in B" >&2
+		exit 1
+		;;
+	esac
+
+	if [ -z "$BUILDDEPENDS" ]; then
+		echo "No build dependencies" >&2
+		exit 1
+	fi
+}
+
+[ "${0##*/}" != "package.sh" ] || init
+
+# vim: syntax=bash :
