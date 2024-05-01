@@ -35,3 +35,5 @@ PATH=C:\OSGeo4W\bin;C:\OSGeo4W\apps\gdal-dev\bin;%PATH%
 QGIS 3.36.1  
 Microsoft Visual Studio Community 2022 (64-bit) - Version 17.9.6  
 CMake3.29.0
+
+![QGIS3.36.1](./QGIS-3.36.1-about.png?raw=true "QGIS3.36.1")
