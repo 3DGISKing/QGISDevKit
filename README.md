@@ -1,55 +1,66 @@
-### Building QGIS on Windows is definitively lacking of a good and shared documentation. So I hope you study awesome algorithms of QGIS by debugging QGIS source code through this repository.
+### QGIS Windows build/debug helper
 
-## How to generate QGIS Microsoft Visual Studio solution.
+Building QGIS on Windows does not have a single, well-maintained guide. This repository helps you generate a Visual Studio solution and debug QGIS source code more easily.
 
-1 Download and install Cygwin : https://www.cygwin.com/setup-x86_64.exe  
-Install it and and install the following packages : flex bison  
-2 Download and install OSGeo4w v2 : http://download.osgeo.org/osgeo4w/v2/osgeo4w-setup.exe  
-Select qgis-ltr-deps 3.44.9-2
+## Generate a QGIS Visual Studio solution
 
-3 Install Microsoft Visual Studio Community 2022 (64-bit) - Version 17.14.31.  
-4 Install CMake.  
-5 Download QGIS source or clone the repository of QGIS.
-Make sure D:/QGIS-final-3_44_9  
-6 Clone this repository.  
-7 Open a new cygwin console and navigate to the cloned directory.
-C:\cygwin64\Cygwin.bat
+1. Install Cygwin from: https://www.cygwin.com/setup-x86_64.exe  
+   During setup, install the packages `flex` and `bison`.
+2. Install OSGeo4W v2 from: http://download.osgeo.org/osgeo4w/v2/osgeo4w-setup.exe  
+   Select package `qgis-ltr-deps 3.44.9-2`.
+3. Install Microsoft Visual Studio Community 2022 (64-bit), version `17.14.31`.
+4. Install CMake.
+5. Clone/download QGIS source and make sure your source directory matches your script settings (example: `D:/QGIS-final-3_44_9`).
+6. Clone this repository.
+7. Open a Cygwin shell (`C:\cygwin64\Cygwin.bat`) and run:
 
 ```
 cd /cygdrive/d/MyResearch/QGISDevKit
 ./qgis.sh
 ```
 
-To generate a Release configuration instead of RelWithDebInfo:
+To generate `Release` instead of `RelWithDebInfo`:
 
 ```
 cd /cygdrive/d/MyResearch/QGISDevKit
 BUILDCONF=Release ./qgis.sh
 ```
 
-If you switch between configurations, clear the previous CMake cache first (for example remove `D:/QGISBuild/CMakeCache.txt`).
+If you switch between build configurations, clear the previous CMake cache first (for example remove `D:/QGISBuild/CMakeCache.txt`).
 
-make sure that following variables are valid in shell script:
-O4W_ROOT, VCSDK, SRCDIR, BUILDDIR
+Before running `qgis.sh`, verify these variables in the script:
+
+- `O4W_ROOT`
+- `VCSDK`
+- `SRCDIR`
+- `BUILDDIR`
 
 ## Troubleshooting
 
-If CMake fails at "Check for working C compiler" with MSVC error `C1090` (PDB API call failed), the compiler is usually fine but debug symbol file creation is blocked.
+If CMake fails on **"Check for working C compiler"** with MSVC error `C1090` (PDB API call failed), the compiler itself is usually fine, but `.pdb` generation is being blocked.
 
-This can happen when Windows Defender Real-time Protection scans or locks generated `.pdb` files in the build directory.
+A common cause is Windows Defender Real-time Protection scanning/locking generated `.pdb` files in the build directory.
 
 Workarounds:
 
 - Temporarily disable Real-time Protection while configuring/building.
-- Or add your QGIS build directory (for example `D:\QGISBuild`) to Defender exclusions (recommended over leaving protection disabled globally).
+- Or add your QGIS build directory (for example `D:\QGISBuild`) to Defender exclusions (recommended over disabling protection globally).
 
-## How to build and start debugging
+## Build and start debugging
 
-Open vs2022.bat in the cloned directory.  
-Make sure that following variables are valid in this bat file:
-O4W_ROOT, BUILDDIR
+Open `vs2022.bat` in the cloned directory.
 
-To start debugging, mark the qgis project of the generated solution as Startup Project and right click at the qgis project and select Properties... Under Configuration Properties -> Debugging, edit the 'Environment' value like this.
+Before running it, verify these variables:
+
+- `O4W_ROOT`
+- `BUILDDIR`
+
+To start debugging in Visual Studio:
+
+1. Set project `qgis` as **Startup Project**.
+2. Right-click `qgis` -> **Properties**.
+3. Go to **Configuration Properties -> Debugging**.
+4. Update **Environment** with:
 
 ```
 PATH=C:\OSGeo4W\bin;C:\OSGeo4W\apps\gdal\bin;D:\QGISBuild\output\bin\RelWithDebInfo;%PATH%
@@ -57,8 +68,8 @@ PATH=C:\OSGeo4W\bin;C:\OSGeo4W\apps\gdal\bin;D:\QGISBuild\output\bin\RelWithDebI
 
 ## Tested with
 
-QGIS 3.36.1  
-Microsoft Visual Studio Community 2022 (64-bit) - Version 17.9.6  
-CMake3.29.0
+- QGIS `3.44.9`
+- Microsoft Visual Studio Community 2022 (64-bit) `17.14.31`
+- CMake `4.3.2`
 
-![QGIS3.36.1](./QGIS-3.36.1-about.png?raw=true "QGIS3.36.1")
+![QGIS3.44.9](./QGIS-3.44.9-about.png?raw=true "QGIS3.44.9")
