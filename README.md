@@ -15,14 +15,14 @@ Building QGIS on Windows does not have a single, well-maintained guide. This rep
 7. Open a Cygwin shell (`C:\cygwin64\Cygwin.bat`) and run:
 
 ```
-cd /cygdrive/d/MyResearch/QGISDevKit
+cd /cygdrive/d/MyGithub/QGISDevKit
 ./qgis.sh
 ```
 
 To generate `Release` instead of `RelWithDebInfo`:
 
 ```
-cd /cygdrive/d/MyResearch/QGISDevKit
+cd /cygdrive/d/MyGithub/QGISDevKit
 BUILDCONF=Release ./qgis.sh
 ```
 
@@ -34,6 +34,9 @@ Before running `qgis.sh`, verify these variables in the script:
 - `VCSDK`
 - `SRCDIR`
 - `BUILDDIR`
+
+`qgis.sh` uses `msvc2022-env.bat` for MSVC environment setup.  
+`msvc2019-env.bat` is kept only for legacy VS2019 workflows.
 
 ## Troubleshooting
 
@@ -48,7 +51,7 @@ Workarounds:
 
 ## Build and start debugging
 
-Open `vs2022.bat` in the cloned directory.
+Open `launch-vs2022.bat` in the cloned directory.
 
 Before running it, verify these variables:
 

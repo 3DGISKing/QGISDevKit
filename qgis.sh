@@ -42,7 +42,7 @@ mkdir -p $BUILDDIR
 
 cd $WORK_DIR
 
-fetchenv msvc-env2022.bat
+fetchenv msvc2022-env.bat
 
 cd $OSGEO4W_ROOT
 
