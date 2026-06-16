@@ -8,7 +8,7 @@ Building QGIS on Windows does not have a single, well-maintained guide. This rep
    During setup, install the packages `flex` and `bison`.
 2. Install OSGeo4W v2 from: http://download.osgeo.org/osgeo4w/v2/osgeo4w-setup.exe  
    Select package `qgis-ltr-deps 3.44.9-2`.
-3. Install Microsoft Visual Studio Community 2022 (64-bit), version `17.14.31`.
+3. Install Microsoft Visual Studio Community 2022 (64-bit), version `17.14.34`.
 4. Install CMake.
 5. Clone/download QGIS source and make sure your source directory matches your script settings (example: `D:/QGIS-final-3_44_9`).
 6. Clone this repository.
@@ -34,9 +34,6 @@ Before running `qgis.sh`, verify these variables in the script:
 - `VCSDK`
 - `SRCDIR`
 - `BUILDDIR`
-
-`qgis.sh` uses `msvc2022-env.bat` for MSVC environment setup.  
-`msvc2019-env.bat` is kept only for legacy VS2019 workflows.
 
 ## Troubleshooting
 
@@ -72,7 +69,7 @@ PATH=C:\OSGeo4W\bin;C:\OSGeo4W\apps\gdal\bin;D:\QGISBuild\output\bin\RelWithDebI
 ## Tested with
 
 - QGIS `3.44.9`
-- Microsoft Visual Studio Community 2022 (64-bit) `17.14.31`
+- Microsoft Visual Studio Community 2022 (64-bit) `17.14.34`
 - CMake `4.3.2`
 
 ![QGIS3.44.9](./QGIS-3.44.9-about.png?raw=true "QGIS3.44.9")

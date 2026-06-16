@@ -2,7 +2,7 @@ if defined PROGRAMFILES(X86) set PF86=%PROGRAMFILES(X86)%
 if not defined PF86 set PF86=%PROGRAMFILES%
 if not defined PF86 (echo PROGRAMFILES not set & goto error)
 
-if not defined VCSDK set VCSDK=10.0.18362.0
+if not defined VCSDK set VCSDK=10.0.26100.0
 
 set VCARCH=amd64
 set SETUPAPI_LIBRARY=%PF86%\Windows Kits\10\Lib\%VCSDK%\um\x64\SetupAPI.Lib

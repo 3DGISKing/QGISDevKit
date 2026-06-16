@@ -1,5 +1,12 @@
 # Change Log
 
+### 1.1.1 - 2026-06-16
+
+##### Changes
+
+- Updated `VCSDK` to `10.0.26100.0` in `msvc2022-env.bat`.
+- Updated `Visual Studio` version to `17.14.34` in `README.md`.
+
 ### 1.1.0 - 2026-04-28
 
 ##### Update
